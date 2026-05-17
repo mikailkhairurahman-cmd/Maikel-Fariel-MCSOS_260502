@@ -1,0 +1,10 @@
+build/
+*.o
+*.elf
+*.bin
+*.iso
+*.img
+*.map
+*.log
+.cache/
+.vscode/
