@@ -1,51 +1,223 @@
-SHELL := /usr/bin/env bash
+.RECIPEPREFIX := >
 
-.DEFAULT_GOAL := help
+SHELL := /usr/bin/env bash
+.DEFAULT_GOAL := all
+
+ARCH := x86_64
+
+BUILD_DIR := build
+SMOKE_DIR := smoke
+
+KERNEL := $(BUILD_DIR)/kernel.elf
+PANIC_KERNEL := $(BUILD_DIR)/kernel.panic.elf
+
+MAP := $(BUILD_DIR)/kernel.map
+PANIC_MAP := $(BUILD_DIR)/kernel.panic.map
+
+DISASM := $(BUILD_DIR)/kernel.disasm.txt
+SYMS := $(BUILD_DIR)/kernel.syms.txt
+
+CC := clang
+LD := ld.lld
+OBJDUMP := objdump
+READELF := readelf
+NM := nm
+
+COMMON_CFLAGS := \
+--target=x86_64-unknown-none-elf \
+-std=c17 \
+-ffreestanding \
+-fno-builtin \
+-fno-stack-protector \
+-fno-stack-check \
+-fno-pic \
+-fno-pie \
+-fno-lto \
+-m64 \
+-march=x86-64 \
+-mabi=sysv \
+-mno-red-zone \
+-mno-mmx \
+-mno-sse \
+-mno-sse2 \
+-mcmodel=kernel \
+-Wall \
+-Wextra \
+-Werror \
+-Ikernel/arch/x86_64/include \
+-Ikernel/include
+
+CFLAGS := $(COMMON_CFLAGS)
+
+PANIC_CFLAGS := \
+$(COMMON_CFLAGS) \
+-DMCSOS_M3_TRIGGER_PANIC=1
+
+LDFLAGS := \
+-nostdlib \
+-static \
+-z max-page-size=0x1000 \
+-T linker.ld
+
+SRC_C := $(shell find kernel -name '*.c' | LC_ALL=C sort)
+
+OBJ := $(patsubst %.c,$(BUILD_DIR)/normal/%.o,$(SRC_C))
+
+PANIC_OBJ := $(patsubst %.c,$(BUILD_DIR)/panic/%.o,$(SRC_C))
 
 .PHONY: \
+all \
 help \
 meta \
 check \
+smoke \
 proof \
 qemu-probe \
+qemu-version \
 repro \
+build \
+panic \
+inspect \
+audit \
+image \
+run \
+debug \
+grade \
+tree \
 test \
 clean \
 distclean
 
+all: build inspect
+
 help:
-	@echo "MCSOS M1 targets:"
-	@echo " make meta        - collect host and toolchain metadata"
-	@echo " make check       - verify required tools and repository path"
-	@echo " make proof       - build freestanding x86_64 ELF proof"
-	@echo " make qemu-probe  - verify QEMU machine and OVMF availability"
-	@echo " make repro       - run reproducibility check for proof artifact"
-	@echo " make test        - run all M1 checks"
-	@echo " make clean       - remove generated proof output"
-	@echo " make distclean   - remove all generated build output"
+>echo "MCSOS targets:"
+>echo "  make build        - build normal kernel"
+>echo "  make panic        - build intentional panic kernel"
+>echo "  make inspect      - inspect ELF binary"
+>echo "  make audit        - audit ELF and symbols"
+>echo "  make image        - create bootable ISO"
+>echo "  make run          - run QEMU"
+>echo "  make debug        - run QEMU with GDB stub"
+>echo "  make grade        - run grading checks"
+>echo "  make clean        - remove build outputs"
 
 meta:
-	@./tools/scripts/collect_meta.sh
+>./tools/scripts/generate_meta.sh
 
 check:
-	@./tools/scripts/check_toolchain.sh
+>./tools/scripts/m3_preflight.sh
+
+smoke:
+>mkdir -p $(BUILD_DIR)/smoke
+
+>$(CC) \
+>--target=x86_64-unknown-none \
+>-ffreestanding \
+>-fno-stack-protector \
+>-fno-pic \
+>-mno-red-zone \
+>-mno-mmx \
+>-mno-sse \
+>-mno-sse2 \
+>-Wall \
+>-Wextra \
+>-Werror \
+>-std=c17 \
+>-c $(SMOKE_DIR)/freestanding.c \
+>-o $(BUILD_DIR)/smoke/freestanding.o
+
+>$(READELF) -h \
+>$(BUILD_DIR)/smoke/freestanding.o | tee \
+>$(BUILD_DIR)/smoke/readelf-header.txt
+
+>$(OBJDUMP) -drwC \
+>$(BUILD_DIR)/smoke/freestanding.o | tee \
+>$(BUILD_DIR)/smoke/objdump.txt >/dev/null
+
+>file $(BUILD_DIR)/smoke/freestanding.o | tee \
+>$(BUILD_DIR)/smoke/file.txt
 
 proof:
-	@./tools/scripts/proof_compile.sh
+>./tools/scripts/proof_compile.sh
 
 qemu-probe:
-	@./tools/scripts/qemu_probe.sh
+>./tools/scripts/qemu_probe.sh
+
+qemu-version:
+>qemu-system-x86_64 --version
+>echo "QEMU exists. M3 boot image available."
 
 repro:
-	@./tools/scripts/repro_check.sh
+>./tools/scripts/repro_check.sh
 
-test: meta check proof qemu-probe repro
-	@echo "OK: M1 test suite passed"
+build: $(KERNEL)
+
+panic: $(PANIC_KERNEL)
+
+$(BUILD_DIR)/normal/%.o: %.c
+>mkdir -p $(dir $@)
+>$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/panic/%.o: %.c
+>mkdir -p $(dir $@)
+>$(CC) $(PANIC_CFLAGS) -c $< -o $@
+
+$(KERNEL): $(OBJ) linker.ld
+>mkdir -p $(BUILD_DIR)
+>$(LD) $(LDFLAGS) -Map=$(MAP) -o $@ $(OBJ)
+
+$(PANIC_KERNEL): $(PANIC_OBJ) linker.ld
+>mkdir -p $(BUILD_DIR)
+>$(LD) $(LDFLAGS) -Map=$(PANIC_MAP) -o $@ $(PANIC_OBJ)
+
+inspect: $(KERNEL)
+>$(READELF) -h $(KERNEL) > $(BUILD_DIR)/kernel.readelf.header.txt
+>$(READELF) -l $(KERNEL) > $(BUILD_DIR)/kernel.readelf.programs.txt
+>$(NM) -n $(KERNEL) > $(SYMS)
+>$(OBJDUMP) -d -Mintel $(KERNEL) > $(DISASM)
+>grep -q 'ELF64' $(BUILD_DIR)/kernel.readelf.header.txt
+>grep -q 'Machine:[[:space:]]*Advanced Micro Devices X86-64' $(BUILD_DIR)/kernel.readelf.header.txt
+>grep -q 'kmain' $(SYMS)
+>grep -q 'kernel_panic_at' $(SYMS)
+
+audit: inspect panic
+>! $(NM) -u $(KERNEL) | grep .
+>! $(NM) -u $(PANIC_KERNEL) | grep .
+>grep -q 'kernel_panic_at' $(DISASM)
+>$(READELF) -S $(KERNEL) | grep -q '.text'
+>$(READELF) -S $(KERNEL) | grep -q '.rodata'
+
+image: $(KERNEL)
+>./tools/scripts/make_iso.sh
+
+run: image
+>./tools/scripts/run_qemu.sh
+
+debug: image
+>./tools/scripts/run_qemu_debug.sh
+
+grade: check build inspect audit image
+>./tools/scripts/grade_m3.sh
+
+tree:
+>tree -a -L 3
+
+test: meta check smoke build inspect audit image
+>echo "========================"
+>echo "SEMUA TEST BERHASIL"
+>echo "========================"
 
 clean:
-	@rm -rf build/proof build/repro
-	@echo "OK: cleaned proof and reproducibility outputs"
+>rm -rf \
+>$(BUILD_DIR)/smoke \
+>$(BUILD_DIR)/inspect \
+>$(BUILD_DIR)/*.elf \
+>$(BUILD_DIR)/*.map \
+>$(BUILD_DIR)/*.txt
 
 distclean:
-	@rm -rf build
-	@echo "OK: removed build directory"
+>rm -rf \
+>$(BUILD_DIR) \
+>iso_root \
+>limine
