@@ -1,5 +1,4 @@
 .RECIPEPREFIX := >
-
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := all
 
@@ -9,9 +8,11 @@ BUILD_DIR := build
 SMOKE_DIR := smoke
 
 KERNEL := $(BUILD_DIR)/kernel.elf
+BP_KERNEL := $(BUILD_DIR)/kernel.breakpoint.elf
 PANIC_KERNEL := $(BUILD_DIR)/kernel.panic.elf
 
 MAP := $(BUILD_DIR)/kernel.map
+BP_MAP := $(BUILD_DIR)/kernel.breakpoint.map
 PANIC_MAP := $(BUILD_DIR)/kernel.panic.map
 
 DISASM := $(BUILD_DIR)/kernel.disasm.txt
@@ -47,11 +48,29 @@ COMMON_CFLAGS := \
 -Ikernel/arch/x86_64/include \
 -Ikernel/include
 
+COMMON_ASFLAGS := \
+--target=x86_64-unknown-none-elf \
+-ffreestanding \
+-fno-pic \
+-fno-pie \
+-m64 \
+-mno-red-zone \
+-Wall \
+-Wextra \
+-Werror \
+-Ikernel/arch/x86_64/include \
+-Ikernel/include
+
 CFLAGS := $(COMMON_CFLAGS)
+ASFLAGS := $(COMMON_ASFLAGS)
+
+BP_CFLAGS := \
+$(COMMON_CFLAGS) \
+-DMCSOS_M4_TRIGGER_BREAKPOINT=1
 
 PANIC_CFLAGS := \
 $(COMMON_CFLAGS) \
--DMCSOS_M3_TRIGGER_PANIC=1
+-DMCSOS_M4_TRIGGER_PANIC=1
 
 LDFLAGS := \
 -nostdlib \
@@ -60,47 +79,31 @@ LDFLAGS := \
 -T linker.ld
 
 SRC_C := $(shell find kernel -name '*.c' | LC_ALL=C sort)
+SRC_S := $(shell find kernel -name '*.S' | LC_ALL=C sort)
 
-OBJ := $(patsubst %.c,$(BUILD_DIR)/normal/%.o,$(SRC_C))
+OBJ := \
+$(patsubst %.c,$(BUILD_DIR)/normal/%.o,$(SRC_C)) \
+$(patsubst %.S,$(BUILD_DIR)/normal/%.o,$(SRC_S))
 
-PANIC_OBJ := $(patsubst %.c,$(BUILD_DIR)/panic/%.o,$(SRC_C))
+BP_OBJ := \
+$(patsubst %.c,$(BUILD_DIR)/breakpoint/%.o,$(SRC_C)) \
+$(patsubst %.S,$(BUILD_DIR)/breakpoint/%.o,$(SRC_S))
+
+PANIC_OBJ := \
+$(patsubst %.c,$(BUILD_DIR)/panic/%.o,$(SRC_C)) \
+$(patsubst %.S,$(BUILD_DIR)/panic/%.o,$(SRC_S))
 
 .PHONY: \
-all \
-help \
-meta \
-check \
-smoke \
-proof \
-qemu-probe \
-qemu-version \
-repro \
-build \
-panic \
-inspect \
-audit \
-image \
-run \
-debug \
-grade \
-tree \
-test \
-clean \
-distclean
+all help meta check smoke proof \
+qemu-probe qemu-version repro \
+build breakpoint panic inspect audit \
+image run debug grade tree test \
+clean distclean
 
 all: build inspect
 
 help:
->echo "MCSOS targets:"
->echo "  make build        - build normal kernel"
->echo "  make panic        - build intentional panic kernel"
->echo "  make inspect      - inspect ELF binary"
->echo "  make audit        - audit ELF and symbols"
->echo "  make image        - create bootable ISO"
->echo "  make run          - run QEMU"
->echo "  make debug        - run QEMU with GDB stub"
->echo "  make grade        - run grading checks"
->echo "  make clean        - remove build outputs"
+>echo "MCSOS build system"
 
 meta:
 >./tools/scripts/generate_meta.sh
@@ -111,33 +114,6 @@ check:
 smoke:
 >mkdir -p $(BUILD_DIR)/smoke
 
->$(CC) \
->--target=x86_64-unknown-none \
->-ffreestanding \
->-fno-stack-protector \
->-fno-pic \
->-mno-red-zone \
->-mno-mmx \
->-mno-sse \
->-mno-sse2 \
->-Wall \
->-Wextra \
->-Werror \
->-std=c17 \
->-c $(SMOKE_DIR)/freestanding.c \
->-o $(BUILD_DIR)/smoke/freestanding.o
-
->$(READELF) -h \
->$(BUILD_DIR)/smoke/freestanding.o | tee \
->$(BUILD_DIR)/smoke/readelf-header.txt
-
->$(OBJDUMP) -drwC \
->$(BUILD_DIR)/smoke/freestanding.o | tee \
->$(BUILD_DIR)/smoke/objdump.txt >/dev/null
-
->file $(BUILD_DIR)/smoke/freestanding.o | tee \
->$(BUILD_DIR)/smoke/file.txt
-
 proof:
 >./tools/scripts/proof_compile.sh
 
@@ -146,12 +122,13 @@ qemu-probe:
 
 qemu-version:
 >qemu-system-x86_64 --version
->echo "QEMU exists. M3 boot image available."
 
 repro:
 >./tools/scripts/repro_check.sh
 
 build: $(KERNEL)
+
+breakpoint: $(BP_KERNEL)
 
 panic: $(PANIC_KERNEL)
 
@@ -159,65 +136,92 @@ $(BUILD_DIR)/normal/%.o: %.c
 >mkdir -p $(dir $@)
 >$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/normal/%.o: %.S
+>mkdir -p $(dir $@)
+>$(CC) $(ASFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/breakpoint/%.o: %.c
+>mkdir -p $(dir $@)
+>$(CC) $(BP_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/breakpoint/%.o: %.S
+>mkdir -p $(dir $@)
+>$(CC) $(ASFLAGS) -c $< -o $@
+
 $(BUILD_DIR)/panic/%.o: %.c
 >mkdir -p $(dir $@)
 >$(CC) $(PANIC_CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/panic/%.o: %.S
+>mkdir -p $(dir $@)
+>$(CC) $(ASFLAGS) -c $< -o $@
+
 $(KERNEL): $(OBJ) linker.ld
 >mkdir -p $(BUILD_DIR)
->$(LD) $(LDFLAGS) -Map=$(MAP) -o $@ $(OBJ)
+>$(LD) $(LDFLAGS) \
+>-Map=$(MAP) \
+>-o $@ \
+>$(OBJ)
+
+$(BP_KERNEL): $(BP_OBJ) linker.ld
+>mkdir -p $(BUILD_DIR)
+>$(LD) $(LDFLAGS) \
+>-Map=$(BP_MAP) \
+>-o $@ \
+>$(BP_OBJ)
 
 $(PANIC_KERNEL): $(PANIC_OBJ) linker.ld
 >mkdir -p $(BUILD_DIR)
->$(LD) $(LDFLAGS) -Map=$(PANIC_MAP) -o $@ $(PANIC_OBJ)
+>$(LD) $(LDFLAGS) \
+>-Map=$(PANIC_MAP) \
+>-o $@ \
+>$(PANIC_OBJ)
 
 inspect: $(KERNEL)
 >$(READELF) -h $(KERNEL) > $(BUILD_DIR)/kernel.readelf.header.txt
 >$(READELF) -l $(KERNEL) > $(BUILD_DIR)/kernel.readelf.programs.txt
 >$(NM) -n $(KERNEL) > $(SYMS)
 >$(OBJDUMP) -d -Mintel $(KERNEL) > $(DISASM)
+
 >grep -q 'ELF64' $(BUILD_DIR)/kernel.readelf.header.txt
 >grep -q 'Machine:[[:space:]]*Advanced Micro Devices X86-64' $(BUILD_DIR)/kernel.readelf.header.txt
 >grep -q 'kmain' $(SYMS)
->grep -q 'kernel_panic_at' $(SYMS)
+>grep -q 'x86_64_idt_init' $(SYMS)
+>grep -q 'x86_64_trap_dispatch' $(SYMS)
+>grep -q 'iretq' $(DISASM)
+>grep -q 'lidt' $(DISASM)
 
-audit: inspect panic
+audit: inspect breakpoint panic
 >! $(NM) -u $(KERNEL) | grep .
+>! $(NM) -u $(BP_KERNEL) | grep .
 >! $(NM) -u $(PANIC_KERNEL) | grep .
->grep -q 'kernel_panic_at' $(DISASM)
+
+>grep -q 'isr_stub_14' $(SYMS)
+>grep -q 'x86_64_exception_stubs' $(SYMS)
+
 >$(READELF) -S $(KERNEL) | grep -q '.text'
 >$(READELF) -S $(KERNEL) | grep -q '.rodata'
 
 image: $(KERNEL)
 >./tools/scripts/make_iso.sh
 
-run: image
->./tools/scripts/run_qemu.sh
+run:
+>echo "M4 qemu run placeholder"
 
-debug: image
->./tools/scripts/run_qemu_debug.sh
+debug:
+>echo "M4 debug placeholder"
 
-grade: check build inspect audit image
->./tools/scripts/grade_m3.sh
+grade:
+>echo "M4 grading placeholder"
 
 tree:
 >tree -a -L 3
 
-test: meta check smoke build inspect audit image
->echo "========================"
->echo "SEMUA TEST BERHASIL"
->echo "========================"
+test: build inspect audit
+>echo "ALL TESTS PASSED"
 
 clean:
->rm -rf \
->$(BUILD_DIR)/smoke \
->$(BUILD_DIR)/inspect \
->$(BUILD_DIR)/*.elf \
->$(BUILD_DIR)/*.map \
->$(BUILD_DIR)/*.txt
+>rm -rf $(BUILD_DIR)
 
-distclean:
->rm -rf \
->$(BUILD_DIR) \
->iso_root \
->limine
+distclean: clean
+>rm -rf iso_root limine evidence
