@@ -1,96 +1,31 @@
-#include <stdint.h>
-
-#include <mcsos/arch/cpu.h>
-#include <mcsos/arch/idt.h>
-
-#include <mcsos/kernel/log.h>
-#include <mcsos/kernel/panic.h>
-#include <mcsos/kernel/version.h>
-
-extern char __kernel_start[];
-extern char __kernel_end[];
-
-static void m4_selftest(void)
-{
-    KERNEL_ASSERT(__kernel_end > __kernel_start);
-
-    KERNEL_ASSERT(sizeof(uintptr_t) == 8u);
-
-    KERNEL_ASSERT(sizeof(x86_64_idt_entry_t) == 16u);
-
-    KERNEL_ASSERT(x86_64_idt_base_for_test() != 0u);
-
-    KERNEL_ASSERT(
-        x86_64_idt_limit_for_test() == 4095u
-    );
-
-    log_writeln(
-        "[M4] selftest: IDT invariants passed"
-    );
-}
+#include "io.h"
+#include "pic.h"
+#include "pit.h"
+#include "serial.h"
 
 void kmain(void)
 {
-    log_init();
+    serial_init();
+    serial_write_string("M5 SERIAL HIDUP\n");
 
-    log_write(MCSOS_NAME);
-    log_write(" ");
-    log_write(MCSOS_VERSION);
-    log_write(" ");
-    log_write(MCSOS_MILESTONE);
-    log_writeln(" kernel entered");
+    cpu_cli();
 
-    log_key_value_hex64(
-        "kernel_start",
-        (uint64_t)(uintptr_t)__kernel_start
-    );
+    serial_write_string("[MCSOS:M5] boot start\n");
 
-    log_key_value_hex64(
-        "kernel_end",
-        (uint64_t)(uintptr_t)__kernel_end
-    );
+    pic_remap(0x20, 0x28);
 
-    log_key_value_hex64(
-        "rflags_before_idt",
-        cpu_read_rflags()
-    );
+    serial_write_string("[MCSOS:M5] pic remapped\n");
 
-    x86_64_idt_init();
+    pit_configure_hz(100);
 
-    m4_selftest();
+    serial_write_string("[MCSOS:M5] pit configured\n");
 
-#ifdef MCSOS_M4_TRIGGER_BREAKPOINT
+    cpu_sti();
 
-    log_writeln(
-        "[M4] triggering intentional breakpoint exception"
-    );
+    serial_write_string("[MCSOS:M5] interrupts enabled\n");
 
-    x86_64_trigger_breakpoint_for_test();
-
-    log_writeln(
-        "[M4] returned from breakpoint handler"
-    );
-
-#endif
-
-#ifdef MCSOS_M3_TRIGGER_PANIC
-
-    KERNEL_PANIC(
-        "intentional M3/M4 panic test",
-        0x4D43534F533034u
-    );
-
-#else
-
-    log_writeln(
-        "[M4] IDT and exception dispatch path installed"
-    );
-
-    log_writeln(
-        "[M4] ready for QEMU smoke test and GDB audit"
-    );
-
-    cpu_halt_forever();
-
-#endif
+    for (;;)
+    {
+        cpu_hlt();
+    }
 }

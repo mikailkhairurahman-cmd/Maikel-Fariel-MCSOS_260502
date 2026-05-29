@@ -84,35 +84,20 @@ static void log_trap_frame(
         "trap_rflags",
         frame->rflags
     );
-
-    log_key_value_hex64(
-        "trap_rax",
-        frame->rax
-    );
-
-    log_key_value_hex64(
-        "trap_rbx",
-        frame->rbx
-    );
-
-    log_key_value_hex64(
-        "trap_rcx",
-        frame->rcx
-    );
-
-    log_key_value_hex64(
-        "trap_rdx",
-        frame->rdx
-    );
 }
 
 void x86_64_trap_dispatch(
     x86_64_trap_frame_t *frame
 )
 {
-    KERNEL_ASSERT(
-        frame != (x86_64_trap_frame_t *)0
-    );
+    if (frame == (x86_64_trap_frame_t *)0) {
+        kernel_panic_at(
+            "null trap frame",
+            0,
+            __FILE__,
+            __LINE__
+        );
+    }
 
     ++trap_count;
 
@@ -133,8 +118,10 @@ void x86_64_trap_dispatch(
         return;
     }
 
-    KERNEL_PANIC(
+    kernel_panic_at(
         "unrecoverable CPU exception",
-        frame->vector
+        frame->vector,
+        __FILE__,
+        __LINE__
     );
 }

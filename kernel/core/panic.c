@@ -1,82 +1,49 @@
 #include <stdint.h>
 
-#include <mcsos/arch/cpu.h>
-#include <mcsos/kernel/log.h>
 #include <mcsos/kernel/panic.h>
-#include <mcsos/kernel/version.h>
+#include <mcsos/kernel/log.h>
 
-static void log_dec_u32(uint32_t value) {
-    char buf[11];
-    uint32_t i = 0u;
-
-    if (value == 0u) {
-        log_putc('0');
-        return;
-    }
-
-    while (value != 0u && i < sizeof(buf)) {
-        buf[i++] = (char)('0' + (value % 10u));
-        value /= 10u;
-    }
-
-    while (i != 0u) {
-        log_putc(buf[--i]);
-    }
+static inline void cpu_cli(void)
+{
+    __asm__ volatile ("cli");
 }
 
-__attribute__((noreturn))
-void kernel_panic_at(
-    const char *file,
-    int line,
-    const char *reason,
-    uint64_t code
-) {
-    uint64_t rflags = cpu_read_rflags();
+static inline void cpu_hlt(void)
+{
+    __asm__ volatile ("hlt");
+}
 
+_Noreturn void kernel_panic_at(
+    const char *message,
+    uint64_t code,
+    const char *file,
+    uint64_t line
+)
+{
     cpu_cli();
 
     log_writeln("");
-    log_writeln("=============== MCSOS KERNEL PANIC ===============");
+    log_writeln("========== KERNEL PANIC ==========");
 
-    log_write("system=");
-    log_write(MCSOS_NAME);
-
-    log_write(" version=");
-    log_write(MCSOS_VERSION);
-
-    log_write(" milestone=");
-    log_writeln(MCSOS_MILESTONE);
-
-    log_write("reason=");
-    log_writeln(
-        reason != (const char *)0
-            ? reason
-            : "<null>"
-    );
-
-    log_write("location=");
-    log_write(
-        file != (const char *)0
-            ? file
-            : "<unknown>"
-    );
-
-    log_write(":");
-    log_dec_u32((uint32_t)line);
-    log_putc('\n');
-
-    log_key_value_hex64("panic_code", code);
+    log_write("message: ");
+    log_writeln(message);
 
     log_key_value_hex64(
-        "rflags_before_cli",
-        rflags
+        "panic_code",
+        code
     );
 
-    log_writeln("state=halted");
+    log_write("file: ");
+    log_writeln(file);
 
-    log_writeln(
-        "=================================================="
+    log_key_value_hex64(
+        "line",
+        line
     );
 
-    cpu_halt_forever();
+    log_writeln("system halted");
+
+    for (;;) {
+        cpu_hlt();
+    }
 }
