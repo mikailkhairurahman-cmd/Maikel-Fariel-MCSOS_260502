@@ -9,6 +9,8 @@ OBJDUMP := objdump
 READELF := readelf
 NM := nm
 
+HOST_CC := clang
+
 CFLAGS := \
 	--target=x86_64-unknown-none-elf \
 	-std=c17 \
@@ -27,36 +29,41 @@ CFLAGS := \
 	-Ikernel/include \
 	-Ikernel/arch/x86_64/include
 
+HOST_CFLAGS := \
+	-std=c17 \
+	-Wall \
+	-Wextra \
+	-Werror \
+	-DMCSOS_HOST_TEST \
+	-Iinclude
+
 LDFLAGS := \
 	-nostdlib \
 	-static \
 	-z max-page-size=0x1000 \
 	-T linker.ld
 
-SRC_C := $(shell find kernel -name '*.c')
+SRC_C := \
+	$(shell find kernel -name '*.c') \
+	src/pmm.c \
+	src/vmm.c
+
 SRC_S := $(shell find kernel -name '*.S')
+
 $(info ASM FILES = $(SRC_S))
 
 OBJ_C := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRC_C))
 OBJ_S := $(patsubst %.S,$(BUILD_DIR)/%.o,$(SRC_S))
-OBJS := \
-$(BUILD)/multiboot.o \
-$(BUILD)/boot.o \
-$(BUILD)/interrupts.o \
-$(BUILD)/serial.o \
-$(BUILD)/panic.o \
-$(BUILD)/pic.o \
-$(BUILD)/pit.o \
-$(BUILD)/idt.o \
-$(BUILD)/kernel.o
 
 OBJ := $(OBJ_C) $(OBJ_S)
 
 KERNEL := $(BUILD_DIR)/kernel.elf
-MAPFILE := $(BUILD_DIR)/mcsos-m5.map
-M5_ELF := $(BUILD_DIR)/mcsos-m5.elf
+MAPFILE := $(BUILD_DIR)/mcsos-m7.map
+M7_ELF := $(BUILD_DIR)/mcsos-m7.elf
 
-.PHONY: all clean iso run inspect grade
+HOST_TEST := $(BUILD_DIR)/test_vmm_host
+
+.PHONY: all clean iso run inspect grade check test-host
 
 all: $(KERNEL)
 
@@ -71,9 +78,9 @@ $(BUILD_DIR)/%.o: %.S
 $(KERNEL): $(OBJ)
 	@mkdir -p $(BUILD_DIR)
 	$(LD) $(LDFLAGS) \
-	-Map=$(MAPFILE) \
-	-o $(KERNEL) \
-	$(OBJ)
+		-Map=$(MAPFILE) \
+		-o $(KERNEL) \
+		$(OBJ)
 
 inspect: $(KERNEL)
 	$(READELF) -h $(KERNEL)
@@ -81,7 +88,8 @@ inspect: $(KERNEL)
 
 grade: $(KERNEL)
 	mkdir -p $(BUILD_DIR)
-	cp $(KERNEL) $(M5_ELF)
+
+	cp $(KERNEL) $(M7_ELF)
 
 	$(READELF) -hW $(KERNEL) > $(BUILD_DIR)/readelf-header.txt
 	$(READELF) -SW $(KERNEL) > $(BUILD_DIR)/readelf-sections.txt
@@ -92,21 +100,38 @@ grade: $(KERNEL)
 
 	$(OBJDUMP) -drwC $(KERNEL) > $(BUILD_DIR)/disassembly.txt
 
-	@echo "[M5] grade artifacts generated"
+	@echo "[M7] grade artifacts generated"
 
 iso: $(KERNEL)
 	mkdir -p build/isofiles/boot/grub
+
 	cp $(KERNEL) build/isofiles/boot/kernel.elf
 	cp grub.cfg build/isofiles/boot/grub/grub.cfg
+
 	grub-mkrescue -o build/mcsos.iso build/isofiles
 
 run: iso
 	qemu-system-x86_64 \
-	-machine q35 \
-	-m 512M \
-	-serial mon:stdio \
-	-no-reboot \
-	-no-shutdown \
-	-cdrom build/mcsos.iso
+		-machine q35 \
+		-m 512M \
+		-serial mon:stdio \
+		-no-reboot \
+		-no-shutdown \
+		-cdrom build/mcsos.iso
+
+$(HOST_TEST): tests/test_vmm_host.c src/vmm.c
+	@mkdir -p $(BUILD_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) \
+		tests/test_vmm_host.c \
+		src/vmm.c \
+		-o $(HOST_TEST)
+
+test-host: $(HOST_TEST)
+	./$(HOST_TEST)
+
 clean:
 	rm -rf $(BUILD_DIR)
+
+check:
+	@echo "[CHECK] build verification"
+	$(MAKE) all

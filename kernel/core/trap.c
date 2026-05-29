@@ -1,3 +1,5 @@
+#include "vmm.h"
+
 #include <stdint.h>
 
 #include <mcsos/arch/idt.h>
@@ -86,6 +88,45 @@ static void log_trap_frame(
     );
 }
 
+static void page_fault_dump(
+    uint64_t error_code,
+    const x86_64_trap_frame_t *tf
+)
+{
+    uint64_t cr2 = vmm_read_cr2();
+
+    log_writeln("#PF page fault");
+
+    log_key_value_hex64("cr2", cr2);
+    log_key_value_hex64("error", error_code);
+    log_key_value_hex64("rip", tf->rip);
+
+    log_key_value_hex64(
+        "present/protection",
+        (error_code & 1ULL) != 0ULL
+    );
+
+    log_key_value_hex64(
+        "write",
+        (error_code & 2ULL) != 0ULL
+    );
+
+    log_key_value_hex64(
+        "user",
+        (error_code & 4ULL) != 0ULL
+    );
+
+    log_key_value_hex64(
+        "reserved",
+        (error_code & 8ULL) != 0ULL
+    );
+
+    log_key_value_hex64(
+        "instruction_fetch",
+        (error_code & 16ULL) != 0ULL
+    );
+}
+
 void x86_64_trap_dispatch(
     x86_64_trap_frame_t *frame
 )
@@ -108,6 +149,21 @@ void x86_64_trap_dispatch(
     );
 
     log_trap_frame(frame);
+
+    if (frame->vector == 14u) {
+
+        page_fault_dump(
+            frame->error_code,
+            frame
+        );
+
+        kernel_panic_at(
+            "page fault",
+            frame->vector,
+            __FILE__,
+            __LINE__
+        );
+    }
 
     if (frame->vector == 3u) {
 

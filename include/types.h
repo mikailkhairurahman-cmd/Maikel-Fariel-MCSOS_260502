@@ -3,11 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-
-typedef int bool;
-
-#define true 1
-#define false 0
+#include <stdbool.h>
 
 #ifndef NULL
 #define NULL ((void *)0)
