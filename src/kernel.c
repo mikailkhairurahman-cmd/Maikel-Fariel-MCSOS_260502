@@ -1,133 +1,75 @@
-#include <stdint.h>
-
-#include <mcsos/arch/cpu.h>
-#include <mcsos/arch/idt.h>
-
-#include <mcsos/kernel/log.h>
-#include <mcsos/kernel/panic.h>
-#include <mcsos/kernel/version.h>
-
-extern char __kernel_start[];
-extern char __kernel_end[];
-
-static void m4_selftest(void)
-{
-    KERNEL_ASSERT(__kernel_end > __kernel_start);
-
-    KERNEL_ASSERT(sizeof(uintptr_t) == 8u);
-
-    KERNEL_ASSERT(sizeof(x86_64_idt_entry_t) == 16u);
-
-    KERNEL_ASSERT(x86_64_idt_base_for_test() != 0u);
-
-    KERNEL_ASSERT(
-        x86_64_idt_limit_for_test() == 4095u
-    );
-
-    log_writeln(
-        "[M4] selftest: IDT invariants passed"
-    );
-}
-
-void kmain(void)
-{
-    log_init();
-
-    log_write(MCSOS_NAME);
-    log_write(" ");
-    log_write(MCSOS_VERSION);
-    log_write(" ");
-    log_write(MCSOS_MILESTONE);
-    log_writeln(" kernel entered");
-
-    log_key_value_hex64(
-        "kernel_start",
-        (uint64_t)(uintptr_t)__kernel_start
-    );
-
-    log_key_value_hex64(
-        "kernel_end",
-        (uint64_t)(uintptr_t)__kernel_end
-    );
-
-    log_key_value_hex64(
-        "rflags_before_idt",
-        cpu_read_rflags()
-    );
-
-    x86_64_idt_init();
-
-    m4_selftest();
-
-#ifdef MCSOS_M4_TRIGGER_BREAKPOINT
-
-    log_writeln(
-        "[M4] triggering intentional breakpoint exception"
-    );
-
-    x86_64_trigger_breakpoint_for_test();
-
-    log_writeln(
-        "[M4] returned from breakpoint handler"
-    );
-
-#endif
-
-#ifdef MCSOS_M3_TRIGGER_PANIC
-
-    KERNEL_PANIC(
-        "intentional M3/M4 panic test",
-        0x4D43534F533034u
-    );
-
-#else
-
-    log_writeln(
-        "[M4] IDT and exception dispatch path installed"
-    );
-
-    log_writeln(
-        "[M4] ready for QEMU smoke test and GDB audit"
-    );
-
-    cpu_halt_forever();
-
-#endif
-}
-#include "idt.h"
-#include "io.h"
-#include "panic.h"
-#include "pic.h"
-#include "pit.h"
+#include "pmm.h"
 #include "serial.h"
+#include "panic.h"
 
-void kmain(void) {
-    cpu_cli();
-    serial_init();
-    serial_write_string("[MCSOS:M5] boot: external interrupt bring-up start\n");
+static struct pmm_state kernel_pmm;
 
-    idt_init();
-    serial_write_string("[MCSOS:M5] idt: loaded\n");
+static uint8_t kernel_pmm_bitmap[PMM_BITMAP_BYTES]
+    __attribute__((aligned(4096)));
 
-    pic_remap(PIC_MASTER_OFFSET, PIC_SLAVE_OFFSET);
-    pic_mask_all();
-    pic_unmask_irq(0);
-    serial_write_string("[MCSOS:M5] pic: remapped; mask master=");
-    serial_write_hex64(pic_read_master_mask());
-    serial_write_string(" slave=");
-    serial_write_hex64(pic_read_slave_mask());
-    serial_write_string("\n");
+static struct boot_mem_region early_regions[] = {
+    {
+        .base = 0x00000000ULL,
+        .length = 0x0009f000ULL,
+        .type = BOOT_MEM_USABLE
+    },
+    {
+        .base = 0x0009f000ULL,
+        .length = 0x00001000ULL,
+        .type = BOOT_MEM_RESERVED
+    },
+    {
+        .base = 0x00100000ULL,
+        .length = 0x03f00000ULL,
+        .type = BOOT_MEM_USABLE
+    }
+};
 
-    pit_configure_hz(100u);
-    serial_write_string("[MCSOS:M5] pit: configured 100Hz\n");
-    serial_write_string("[MCSOS:M5] sti: enabling interrupts\n");
-    cpu_sti();
+static void kernel_memory_init(
+    const struct boot_mem_region *regions,
+    size_t region_count
+) {
+    bool ok = pmm_init_from_map(
+        &kernel_pmm,
+        regions,
+        region_count,
+        kernel_pmm_bitmap,
+        sizeof(kernel_pmm_bitmap),
+        PMM_MAX_PHYS_BYTES
+    );
 
-#if defined(MCSOS_TEST_BREAKPOINT)
-    __asm__ volatile ("int3");
-#endif
+    if (!ok) {
+        panic("pmm_init_from_map failed");
+    }
 
-    for (;;) {
-        cpu_hlt();
+    serial_write("[m6] pmm initialized\n");
+
+    serial_write_u64_hex(
+        pmm_frame_count(&kernel_pmm)
+    );
+
+    serial_write(" frames managed\n");
+
+    serial_write_u64_hex(
+        pmm_free_count(&kernel_pmm)
+    );
+
+    serial_write(" frames free\n");
+
+    uint64_t f =
+        pmm_alloc_frame(&kernel_pmm);
+
+    if (f == PMM_INVALID_FRAME) {
+        panic("pmm_alloc_frame returned invalid");
+    }
+
+    serial_write("[m6] sample frame = ");
+
+    serial_write_u64_hex(f);
+
+    serial_write("\n");
+
+    if (!pmm_free_frame(&kernel_pmm, f)) {
+        panic("pmm_free_frame failed");
     }
 }
