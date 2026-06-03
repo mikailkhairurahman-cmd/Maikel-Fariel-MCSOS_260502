@@ -135,3 +135,43 @@ clean:
 check:
 	@echo "[CHECK] build verification"
 	$(MAKE) all
+
+# ==================================================
+# M8 Kernel Heap Allocator
+# ==================================================
+
+.PHONY: m8-clean m8-kmem-host-test m8-kmem-freestanding m8-audit m8-all
+
+m8-clean:
+	rm -rf build/m8
+
+build/m8:
+	mkdir -p build/m8
+
+m8-kmem-freestanding: | build/m8
+	$(CC) $(CFLAGS) \
+	-c kernel/mm/kmem.c \
+	-o build/m8/kmem.freestanding.o
+
+m8-kmem-host-test: | build/m8
+	$(HOST_CC) $(HOST_CFLAGS) \
+	-Iinclude \
+	tests/test_kmem.c \
+	kernel/mm/kmem.c \
+	-o build/m8/test_kmem
+
+	./build/m8/test_kmem | tee build/m8/test_kmem.log
+
+m8-audit: m8-kmem-freestanding
+	nm -u build/m8/kmem.freestanding.o \
+	| tee build/m8/nm_u.txt
+
+	test ! -s build/m8/nm_u.txt
+
+	readelf -h build/m8/kmem.freestanding.o \
+	> build/m8/readelf_h.txt
+
+	objdump -dr build/m8/kmem.freestanding.o \
+	> build/m8/kmem.objdump.txt
+
+m8-all: m8-kmem-host-test m8-audit
