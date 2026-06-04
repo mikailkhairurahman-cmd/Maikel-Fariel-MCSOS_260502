@@ -1,4 +1,4 @@
-.section .multiboot
+.section .multiboot,"a",@progbits
 .align 8
 
 header_start:
