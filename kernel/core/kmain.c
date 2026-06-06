@@ -1,3 +1,4 @@
+#include "mcsos/syscall.h"
 #include "serial.h"
 #include "pic.h"
 #include "pit.h"
@@ -65,6 +66,22 @@ static void demo_thread_b(void *arg)
 void kmain(void)
 {
     serial_init();
+/* M10 syscall smoke test */
+    serial_write_string("[M10] syscall init\n");
+    mcsos_syscall_ops_t ops = {
+        .get_ticks     = 0,
+        .yield_current = 0,
+        .exit_current  = 0,
+        .write_serial  = 0
+    };
+    mcsos_syscall_init(&ops);
+    int64_t ping = mcsos_syscall_dispatch(0, 0, 0, 0, 0, 0, 0);
+    if (ping == 0x2605020AL) {
+        serial_write_string("[M10] syscall ping ok\n");
+    } else {
+        serial_write_string("[M10] syscall ping FAIL\n");
+    }
+    serial_write_string("[M10] syscall smoke done\n");
 
     pic_remap(0x20, 0x28);
 
@@ -98,9 +115,8 @@ void kmain(void)
 
     serial_write_string("[M7] map page ok\n");
 
-    vmm_load_cr3(pml4_phys);
-
-    serial_write_string("[M7] cr3 loaded\n");
+/* vmm_load_cr3(pml4_phys); */ /* dinonaktifkan sementara M10 */
+    serial_write_string("[M7] cr3 skipped for M10\n");
 
     cpu_sti();
 

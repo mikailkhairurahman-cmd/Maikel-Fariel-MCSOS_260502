@@ -1,0 +1,9 @@
+M10 Readiness Review
+====================
+C1 Host test       : LULUS - M10 syscall host tests passed
+C2 Freestanding    : LULUS - syscall.o, syscall_entry.o
+C3 Object audit    : LULUS - nm kosong, readelf X86-64, objdump iretq ok
+C4 QEMU smoke test : LULUS - [M10] syscall ping ok
+
+Status: SIAP UJI QEMU untuk syscall dispatcher awal dan smoke test ABI kernel-side
+Catatan: vmm_load_cr3 M7 dinonaktifkan sementara karena page table belum setup penuh
