@@ -1,6 +1,7 @@
 #include "mcsos/user/m11_elf_loader.h"
 #include "mcsos/syscall.h"
 #include "serial.h"
+#include "m12_selftest.h"
 #include "pic.h"
 #include "pit.h"
 #include "io.h"
@@ -68,6 +69,7 @@ void kmain(void)
 {
     serial_init();
 /* M10 syscall smoke test */
+    m12_sync_selftest();
     serial_write_string("[M10] syscall init\n");
     mcsos_syscall_ops_t ops = {
         .get_ticks     = 0,
