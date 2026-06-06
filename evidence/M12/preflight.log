@@ -1,0 +1,8 @@
+2026-06-07T00:39:27+07:00
+Linux Maikel 6.6.114.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Mon Dec  1 20:46:23 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux
+Ubuntu clang version 18.1.3 (1ubuntu1)
+cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+GNU Make 4.3
+f237d96
+?? docs/objdump.txt
+?? kernel/arch/x86_64/boot/start.S.bak
