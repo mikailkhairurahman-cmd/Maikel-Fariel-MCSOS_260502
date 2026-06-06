@@ -249,3 +249,53 @@ m9-audit: m9-freestanding
 
 m9-clean:
 	rm -rf $(BUILD_M9)
+
+# ─── M10 targets ───────────────────────────────────────────
+CC       ?= clang
+HOST_CC  ?= clang
+OBJDUMP  ?= objdump
+READELF  ?= readelf
+NM       ?= nm
+
+CFLAGS_COMMON  := -Iinclude -Wall -Wextra -Werror -std=c17
+KERNEL_CFLAGS  := $(CFLAGS_COMMON) -target x86_64-elf -ffreestanding \
+                  -fno-stack-protector -fno-builtin -mno-red-zone -O2 -g
+HOST_CFLAGS    := $(CFLAGS_COMMON) -O2 -g
+
+m10-all: build/test_syscall_host build/syscall.o \
+         build/syscall_entry.o build/m10_syscall_combined.o m10-audit
+
+build/test_syscall_host: tests/test_syscall_host.c \
+                         kernel/syscall/syscall.c \
+                         include/mcsos/syscall.h
+	$(HOST_CC) $(HOST_CFLAGS) tests/test_syscall_host.c \
+	kernel/syscall/syscall.c -o $@
+
+build/syscall.o: kernel/syscall/syscall.c include/mcsos/syscall.h
+	$(CC) $(KERNEL_CFLAGS) -c kernel/syscall/syscall.c -o $@
+
+build/syscall_entry.o: kernel/syscall/syscall_entry.S
+	$(CC) -target x86_64-elf \
+	-c kernel/syscall/syscall_entry.S -o $@
+
+build/m10_syscall_combined.o: build/syscall.o build/syscall_entry.o
+	ld -r $^ -o $@
+
+m10-host-test: build/test_syscall_host
+	./build/test_syscall_host
+
+m10-audit: build/m10_syscall_combined.o
+	$(NM) -u build/m10_syscall_combined.o > build/nm_undefined.txt
+	$(READELF) -h build/m10_syscall_combined.o > build/readelf_header.txt
+	$(OBJDUMP) -dr build/m10_syscall_combined.o > build/objdump.txt
+	sha256sum build/test_syscall_host \
+	          build/m10_syscall_combined.o > build/SHA256SUMS
+	grep -q "Advanced Micro Devices X86-64" build/readelf_header.txt
+	grep -q "x86_64_syscall_int80_stub" build/objdump.txt
+	grep -q "iretq" build/objdump.txt
+
+m10-clean:
+	rm -f build/test_syscall_host build/syscall.o \
+	      build/syscall_entry.o build/m10_syscall_combined.o \
+	      build/nm_undefined.txt build/readelf_header.txt \
+	      build/objdump.txt build/SHA256SUMS
