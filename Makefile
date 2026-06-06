@@ -299,3 +299,17 @@ m10-clean:
 	      build/syscall_entry.o build/m10_syscall_combined.o \
 	      build/nm_undefined.txt build/readelf_header.txt \
 	      build/objdump.txt build/SHA256SUMS
+
+m10-freestanding: build/syscall.o build/syscall_entry.o
+
+run-qemu: iso
+	timeout 15 qemu-system-x86_64 \
+		-machine q35 \
+		-m 512M \
+		-display none \
+		-monitor /dev/null \
+		-serial file:logs/m10_serial.log \
+		-no-reboot \
+		-no-shutdown \
+		-cdrom build/mcsos.iso || true
+	cat logs/m10_serial.log

@@ -83,6 +83,22 @@ void kmain(void)
     }
     serial_write_string("[M10] syscall smoke done\n");
 
+/* C6: int 0x80 entry smoke test via frame */
+    serial_write_string("[M10] C6 frame dispatch test\n");
+    mcsos_syscall_frame_t frame = {
+        .nr   = MCSOS_SYS_PING,
+        .arg0 = 0, .arg1 = 0, .arg2 = 0,
+        .arg3 = 0, .arg4 = 0, .arg5 = 0,
+        .ret  = 0
+    };
+    mcsos_syscall_dispatch_frame(&frame);
+    if (frame.ret == 0x2605020AL) {
+        serial_write_string("[M10] int80 frame ping ok\n");
+    } else {
+        serial_write_string("[M10] int80 frame ping FAIL\n");
+    }
+    serial_write_string("[M10] C6 entry smoke done\n");
+
     pic_remap(0x20, 0x28);
 
     pit_configure_hz(100);
