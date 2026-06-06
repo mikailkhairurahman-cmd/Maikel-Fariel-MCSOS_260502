@@ -1,3 +1,4 @@
+#include "mcsos/user/m11_elf_loader.h"
 #include "mcsos/syscall.h"
 #include "serial.h"
 #include "pic.h"
@@ -98,6 +99,45 @@ void kmain(void)
         serial_write_string("[M10] int80 frame ping FAIL\n");
     }
     serial_write_string("[M10] C6 entry smoke done\n");
+
+/* M11 ELF loader smoke test */
+    serial_write_string("[M11] elf loader init\n");
+    static unsigned char m11_test_image[12288];
+    struct m11_elf64_ehdr *m11_eh = (struct m11_elf64_ehdr *)(void *)m11_test_image;
+    /* build minimal valid ELF64 in BSS */
+    m11_eh->e_ident[0] = 0x7fu;
+    m11_eh->e_ident[1] = 'E';
+    m11_eh->e_ident[2] = 'L';
+    m11_eh->e_ident[3] = 'F';
+    m11_eh->e_ident[4] = 2u;   /* ELFCLASS64 */
+    m11_eh->e_ident[5] = 1u;   /* ELFDATA2LSB */
+    m11_eh->e_ident[6] = 1u;   /* EV_CURRENT */
+    m11_eh->e_type     = 2u;   /* ET_EXEC */
+    m11_eh->e_machine  = 62u;  /* EM_X86_64 */
+    m11_eh->e_version  = 1u;
+    m11_eh->e_entry    = 0x401000ull;
+    m11_eh->e_phoff    = sizeof(struct m11_elf64_ehdr);
+    m11_eh->e_ehsize   = (uint16_t)sizeof(struct m11_elf64_ehdr);
+    m11_eh->e_phentsize = (uint16_t)sizeof(struct m11_elf64_phdr);
+    m11_eh->e_phnum    = 1u;
+    struct m11_elf64_phdr *m11_ph = (struct m11_elf64_phdr *)(void *)
+        (m11_test_image + sizeof(struct m11_elf64_ehdr));
+    m11_ph->p_type   = 1u;         /* PT_LOAD */
+    m11_ph->p_flags  = 4u | 1u;   /* PF_R | PF_X */
+    m11_ph->p_offset = 0x1000u;
+    m11_ph->p_vaddr  = 0x400000ull;
+    m11_ph->p_filesz = 16u;
+    m11_ph->p_memsz  = 4096u;
+    m11_ph->p_align  = 4096u;
+    struct m11_user_region m11_region = { 0x400000ull, 0x8000000000ull };
+    struct m11_process_image_plan m11_plan;
+    int m11_rc = m11_elf64_plan_load(m11_test_image, 12288u, m11_region, &m11_plan);
+    if (m11_rc == 0) {
+        serial_write_string("[M11] elf: plan ok\n");
+    } else {
+        serial_write_string("[M11] elf: plan FAIL\n");
+    }
+    serial_write_string("[M11] user image plan ready\n");
 
     pic_remap(0x20, 0x28);
 
