@@ -1,3 +1,4 @@
+#include "mcs_vfs.h"
 #include "mcsos/user/m11_elf_loader.h"
 #include "mcsos/syscall.h"
 #include "serial.h"
@@ -13,6 +14,8 @@
 #include <stdint.h>
 
 static struct pmm_state *g_pmm = 0;
+static mcs_ramfs_t g_kernel_ramfs;
+static mcs_process_t g_kernel_proc;
 
 static mcsos_scheduler_t g_sched;
 static mcsos_thread_t g_boot_thread;
@@ -68,6 +71,35 @@ static void demo_thread_b(void *arg)
 void kmain(void)
 {
     serial_init();
+/* M13: init VFS, RAMFS, FD table */
+    mcs_ramfs_init(&g_kernel_ramfs);
+    mcs_ramfs_seed_file(&g_kernel_ramfs, "/hello.txt",
+        (const uint8_t *)"hello-mcsos-m13", 15);
+    g_kernel_proc.pid = 1;
+    mcs_fd_table_init(&g_kernel_proc.fd_table);
+    mcs_vfs_set_active_ramfs_for_test(&g_kernel_ramfs);
+    serial_write_string("[M13] ramfs init ok\n");
+
+    /* M13: smoke test open/read/close */
+    int m13_fd = mcs_sys_open(&g_kernel_proc, &g_kernel_ramfs,
+        "/hello.txt", MCS_O_RDONLY);
+    if (m13_fd >= 0) {
+        serial_write_string("[M13] open ok\n");
+        char m13_buf[16] = {0};
+        mcs_ssize_t m13_n = mcs_sys_read(&g_kernel_proc, m13_fd,
+            m13_buf, 5);
+        if (m13_n == 5) {
+            serial_write_string("[M13] read ok\n");
+        } else {
+            serial_write_string("[M13] read FAIL\n");
+        }
+        mcs_sys_close(&g_kernel_proc, m13_fd);
+        serial_write_string("[M13] close ok\n");
+    } else {
+        serial_write_string("[M13] open FAIL\n");
+    }
+    serial_write_string("[M13] vfs smoke done\n");
+
 /* M10 syscall smoke test */
     m12_sync_selftest();
     serial_write_string("[M10] syscall init\n");

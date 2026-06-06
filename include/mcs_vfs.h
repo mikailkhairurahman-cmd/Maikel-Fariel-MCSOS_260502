@@ -96,4 +96,6 @@ mcs_ssize_t mcs_sys_write(mcs_process_t *proc, int fd, const void *user_buf, siz
 int mcs_sys_close(mcs_process_t *proc, int fd);
 int mcs_sys_lseek(mcs_process_t *proc, int fd, long offset, int whence);
 
+void mcs_vfs_set_active_ramfs_for_test(mcs_ramfs_t *fs);
+
 #endif /* MCS_VFS_H */
